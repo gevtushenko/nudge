@@ -197,10 +197,13 @@ export class GitHubService {
                 })
             );
 
-            this.cachedPRs = prs;
-            this.lastReviewCount = prs.length;
+            // Always filter out draft PRs
+            const filteredPRs = prs.filter(pr => !pr.draft);
 
-            return prs;
+            this.cachedPRs = filteredPRs;
+            this.lastReviewCount = filteredPRs.length;
+
+            return filteredPRs;
         } catch (error: any) {
             console.error('Failed to fetch PR reviews:', error);
             if (error.status === 401) {

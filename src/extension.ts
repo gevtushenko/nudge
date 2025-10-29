@@ -117,7 +117,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Listen for configuration changes
     context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(e => {
+        vscode.workspace.onDidChangeConfiguration(async e => {
             if (e.affectsConfiguration('prReviewReminder.refreshInterval')) {
                 // Clear existing interval
                 if (refreshInterval) {
@@ -136,6 +136,7 @@ export async function activate(context: vscode.ExtensionContext) {
                     }, newInterval);
                 }
             }
+
         })
     );
 }
