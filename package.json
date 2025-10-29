@@ -1,9 +1,9 @@
 {
-  "name": "nudge",
-  "displayName": "Nudge - PR Review Reminder",
+  "name": "review-nudge",
+  "displayName": "Review Nudge - GitHub PR Reminder",
   "description": "Never forget a PR review - shows pending GitHub reviews front and center when VS Code starts",
-  "version": "0.3.0",
-  "publisher": "your-publisher-name",
+  "version": "0.1.0",
+  "publisher": "gevtushenko",
   "repository": {
     "type": "git",
     "url": "https://github.com/gevtushenko/nudge"
@@ -15,29 +15,29 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:nudge.showReviews",
-    "onCommand:nudge.refresh",
-    "onCommand:nudge.dismiss",
+    "onCommand:review-nudge.showReviews",
+    "onCommand:review-nudge.refresh",
+    "onCommand:review-nudge.dismiss",
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "nudge.showReviews",
+        "command": "review-nudge.showReviews",
         "title": "Show PR Reviews",
-        "category": "Nudge"
+        "category": "Review Nudge"
       },
       {
-        "command": "nudge.refresh",
+        "command": "review-nudge.refresh",
         "title": "Refresh PR Reviews",
-        "category": "Nudge",
+        "category": "Review Nudge",
         "icon": "$(refresh)"
       },
       {
-        "command": "nudge.dismiss",
+        "command": "review-nudge.dismiss",
         "title": "Dismiss PR Reviews (for this session)",
-        "category": "Nudge"
+        "category": "Review Nudge"
       }
     ],
     "configuration": {

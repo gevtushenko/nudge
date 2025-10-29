@@ -6,21 +6,21 @@ let refreshInterval: NodeJS.Timeout | undefined;
 let hasShownThisSession = false;
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('Nudge extension is now active!');
+    console.log('Review Nudge extension is now active!');
 
     // Show a message to confirm activation
-    vscode.window.showInformationMessage('Nudge extension activated!');
+    vscode.window.showInformationMessage('Review Nudge extension activated!');
 
     // Initialize GitHub service
     const githubService = new GitHubService(context);
 
     // Command to show PR reviews
-    const showReviewsCommand = vscode.commands.registerCommand('nudge.showReviews', async () => {
+    const showReviewsCommand = vscode.commands.registerCommand('review-nudge.showReviews', async () => {
         await PRReviewPanel.createOrShow(context, githubService);
     });
 
     // Command to refresh PR reviews
-    const refreshCommand = vscode.commands.registerCommand('nudge.refresh', async () => {
+    const refreshCommand = vscode.commands.registerCommand('review-nudge.refresh', async () => {
         if (PRReviewPanel.currentPanel) {
             await PRReviewPanel.currentPanel.refresh();
             vscode.window.showInformationMessage('PR reviews refreshed');
@@ -31,7 +31,7 @@ export async function activate(context: vscode.ExtensionContext) {
     });
 
     // Command to dismiss for this session
-    const dismissCommand = vscode.commands.registerCommand('nudge.dismiss', () => {
+    const dismissCommand = vscode.commands.registerCommand('review-nudge.dismiss', () => {
         if (PRReviewPanel.currentPanel) {
             PRReviewPanel.currentPanel.dispose();
             hasShownThisSession = true;
