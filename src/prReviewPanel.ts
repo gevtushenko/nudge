@@ -148,7 +148,7 @@ export class PRReviewPanel {
             // Show loading state
             this._panel.webview.postMessage({ command: 'loading' });
 
-            // Fetch PRs
+            // Fetch PRs (draft PRs are automatically filtered out)
             const prs = await this._githubService.getAssignedPRReviews();
 
             // Update the webview
@@ -301,16 +301,6 @@ export class PRReviewPanel {
 
                 .comments {
                     color: var(--vscode-descriptionForeground);
-                }
-
-                .draft-badge {
-                    background-color: var(--vscode-badge-background);
-                    color: var(--vscode-badge-foreground);
-                    padding: 3px 8px;
-                    border-radius: 12px;
-                    font-size: 11px;
-                    font-weight: 600;
-                    text-transform: uppercase;
                 }
 
                 .empty-state {
@@ -479,7 +469,6 @@ export class PRReviewPanel {
                                     <div style="flex-grow: 1;">
                                         <div class="pr-title">
                                             \${pr.title}
-                                            \${pr.draft ? '<span class="draft-badge">Draft</span>' : ''}
                                         </div>
                                         <div class="pr-repo">\${pr.repository.full_name} #\${pr.number}</div>
                                     </div>
