@@ -1,6 +1,8 @@
-# Nudge - PR Review Reminder for VS Code
+# Review Nudge - GitHub PR Reminder for VS Code
 
-Never miss a GitHub PR review again! Nudge is a VS Code extension that automatically shows all pull requests assigned to you for review when you start VS Code, making sure they're front and center.
+Never miss a GitHub PR review again! Review Nudge is a VS Code extension that automatically shows all pull requests assigned to you for review when you start VS Code, making sure they're front and center.
+
+![Review Nudge Demo](img/demo.png)
 
 ## Features
 
@@ -56,9 +58,9 @@ To create an installable VSIX package:
 
 ### Commands
 
-- `PR Review Reminder: Show PR Reviews` - Manually open the PR reviews panel
-- `PR Review Reminder: Refresh PR Reviews` - Manually refresh the PR list
-- `PR Review Reminder: Dismiss PR Reviews (for this session)` - Close the panel for the current VS Code session
+- `Review Nudge: Show PR Reviews` - Manually open the PR reviews panel
+- `Review Nudge: Refresh PR Reviews` - Manually refresh the PR list
+- `Review Nudge: Dismiss PR Reviews (for this session)` - Close the panel for the current VS Code session
 
 ### Configuration
 
