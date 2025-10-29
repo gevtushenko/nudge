@@ -15,3 +15,8 @@ extension-*.js
 out/**
 webpack.config.js
 test-extension.ts
+img/**
+.claude/**
+dist/*.map
+package-lock.json
+*.png
