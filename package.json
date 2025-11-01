@@ -2,14 +2,14 @@
   "name": "review-nudge",
   "displayName": "Review Nudge - GitHub PR Reminder",
   "description": "Never forget a PR review - shows pending GitHub reviews front and center when VS Code starts",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "gevtushenko",
   "repository": {
     "type": "git",
     "url": "https://github.com/gevtushenko/nudge"
   },
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
@@ -83,7 +83,7 @@
   },
   "devDependencies": {
     "@types/node": "20.x",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "@vscode/test-cli": "^0.0.4",
