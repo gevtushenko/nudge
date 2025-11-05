@@ -6,13 +6,27 @@ let refreshInterval: NodeJS.Timeout | undefined;
 let hasShownThisSession = false;
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('Review Nudge extension is now active!');
-
     // Show a message to confirm activation
     vscode.window.showInformationMessage('Review Nudge extension activated!');
 
     // Initialize GitHub service
     const githubService = new GitHubService(context);
+
+    // Sync review history on startup (once per day)
+    const lastSyncDate = context.globalState.get<string>('lastSyncDate');
+    const today = new Date().toISOString().split('T')[0];
+
+    if (lastSyncDate !== today) {
+        // Sync in the background after a delay to not slow down startup
+        setTimeout(async () => {
+            try {
+                await githubService.syncReviewHistory(90);
+                await context.globalState.update('lastSyncDate', today);
+            } catch (error) {
+                console.error('Failed to sync review history on startup:', error);
+            }
+        }, 5000); // 5 second delay
+    }
 
     // Command to show PR reviews
     const showReviewsCommand = vscode.commands.registerCommand('review-nudge.showReviews', async () => {
@@ -39,7 +53,57 @@ export async function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    context.subscriptions.push(showReviewsCommand, refreshCommand, dismissCommand);
+    // Command to sync review history
+    const syncCommand = vscode.commands.registerCommand('review-nudge.syncReviewHistory', async () => {
+        try {
+            vscode.window.showInformationMessage('Syncing review history from GitHub...');
+            const count = await githubService.syncReviewHistory(90);
+            vscode.window.showInformationMessage(`Synced ${count} reviews from GitHub`);
+
+            // Refresh the panel if it's open
+            if (PRReviewPanel.currentPanel) {
+                await PRReviewPanel.currentPanel.refresh();
+            }
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to sync: ${error.message}`);
+        }
+    });
+
+    // Command to clean up local "VIEWED" reviews
+    const cleanupCommand = vscode.commands.registerCommand('review-nudge.cleanupLocalReviews', async () => {
+        try {
+            await githubService.cleanupLocalViewedReviews();
+            vscode.window.showInformationMessage('Cleaned up local review tracking');
+
+            // Refresh the panel if it's open
+            if (PRReviewPanel.currentPanel) {
+                await PRReviewPanel.currentPanel.refresh();
+            }
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to cleanup: ${error.message}`);
+        }
+    });
+
+    // Command to clear all and re-sync from GitHub
+    const clearAndResyncCommand = vscode.commands.registerCommand('review-nudge.clearAndResync', async () => {
+        try {
+            // Close the panel if it's open to force a fresh start
+            if (PRReviewPanel.currentPanel) {
+                PRReviewPanel.currentPanel.dispose();
+            }
+
+            vscode.window.showInformationMessage('Clearing all review data and re-syncing from GitHub...');
+            const count = await githubService.clearAndResync();
+            vscode.window.showInformationMessage(`Re-synced ${count} reviews from GitHub (PRs you authored are excluded)`);
+
+            // Re-open the panel with fresh data
+            await PRReviewPanel.createOrShow(context, githubService);
+        } catch (error: any) {
+            vscode.window.showErrorMessage(`Failed to clear and resync: ${error.message}`);
+        }
+    });
+
+    context.subscriptions.push(showReviewsCommand, refreshCommand, dismissCommand, syncCommand, cleanupCommand, clearAndResyncCommand);
 
     // Auto-show on startup if enabled
     const config = vscode.workspace.getConfiguration('prReviewReminder');

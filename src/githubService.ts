@@ -29,6 +29,26 @@ export interface PullRequest {
     labels: Array<{ name: string; color: string }>;
 }
 
+export interface ReviewEvent {
+    prId: number;
+    prTitle: string;
+    prNumber: number;
+    repository: string;
+    reviewedAt: string;
+    reviewState: string; // APPROVED, CHANGES_REQUESTED, COMMENTED
+    prUrl?: string; // URL to the PR on GitHub
+}
+
+export interface DailyReviewStats {
+    date: string; // YYYY-MM-DD
+    count: number;
+    reviews: ReviewEvent[];
+}
+
+export interface ReviewStats {
+    [date: string]: DailyReviewStats;
+}
+
 export class GitHubService {
     private octokit: Octokit | null = null;
     private lastReviewCount: number = 0;
@@ -60,13 +80,11 @@ export class GitHubService {
 
                 // Test the connection
                 const { data: user } = await this.octokit.users.getAuthenticated();
-                console.log(`Authenticated as ${user.login}`);
-
                 await vscode.window.showInformationMessage(`Connected to GitHub as ${user.login}`);
                 return;
             }
         } catch (error) {
-            console.log('VS Code GitHub authentication failed, trying token from settings...', error);
+            // VS Code GitHub authentication failed, trying token from settings
         }
 
         // Fallback to token from settings
@@ -80,7 +98,6 @@ export class GitHubService {
 
             try {
                 const { data: user } = await this.octokit.users.getAuthenticated();
-                console.log(`Authenticated with token as ${user.login}`);
                 await vscode.window.showInformationMessage(`Connected to GitHub as ${user.login}`);
             } catch (error) {
                 throw new Error('Invalid GitHub token. Please check your settings or use VS Code GitHub authentication.');
@@ -246,5 +263,256 @@ export class GitHubService {
         } catch {
             return false;
         }
+    }
+
+    /**
+     * Query completed reviews from GitHub for the specified date range
+     * @param since Optional date to query reviews from (defaults to 90 days ago)
+     */
+    async getCompletedReviews(since?: Date): Promise<ReviewEvent[]> {
+        if (!this.octokit) {
+            await this.authenticate();
+            if (!this.octokit) {
+                throw new Error('Not authenticated with GitHub');
+            }
+        }
+
+        try {
+            // Default to 90 days ago if not specified
+            const sinceDate = since || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+            const { data: user } = await this.octokit.users.getAuthenticated();
+
+            // Search for PRs reviewed by the user
+            const searchQuery = `is:pr reviewed-by:${user.login} updated:>=${sinceDate.toISOString().split('T')[0]}`;
+
+            const { data } = await this.octokit.search.issuesAndPullRequests({
+                q: searchQuery,
+                sort: 'updated',
+                order: 'desc',
+                per_page: 100
+            });
+
+            const reviews: ReviewEvent[] = [];
+
+            // Fetch review details for each PR
+            for (const item of data.items) {
+                try {
+                    // Skip PRs authored by the user
+                    if (item.user?.login === user.login) {
+                        continue;
+                    }
+
+                    const urlParts = item.repository_url.split('/');
+                    const owner = urlParts[urlParts.length - 2];
+                    const repo = urlParts[urlParts.length - 1];
+
+                    // Get reviews submitted by the authenticated user
+                    const { data: prReviews } = await this.octokit.pulls.listReviews({
+                        owner,
+                        repo,
+                        pull_number: item.number
+                    });
+
+                    // Filter reviews by the authenticated user
+                    const userReviews = prReviews.filter(review => review.user?.login === user.login);
+
+                    for (const review of userReviews) {
+                        // Only include reviews that have been submitted
+                        if (review.submitted_at) {
+                            reviews.push({
+                                prId: item.id,
+                                prTitle: item.title,
+                                prNumber: item.number,
+                                repository: `${owner}/${repo}`,
+                                reviewedAt: review.submitted_at,
+                                reviewState: review.state,
+                                prUrl: item.html_url
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error(`Failed to get reviews for PR #${item.number}:`, error);
+                }
+            }
+
+            return reviews;
+        } catch (error: any) {
+            console.error('Failed to fetch completed reviews:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get review statistics from local storage
+     */
+    getReviewStats(): ReviewStats {
+        return this.context.globalState.get<ReviewStats>('reviewStats', {});
+    }
+
+    /**
+     * Get aggregated stats by date range
+     */
+    getStatsForDateRange(startDate: Date, endDate: Date): { date: string; count: number }[] {
+        const stats = this.getReviewStats();
+        const result: { date: string; count: number }[] = [];
+
+        const current = new Date(startDate);
+        while (current <= endDate) {
+            const dateStr = current.toISOString().split('T')[0];
+            const dayStat = stats[dateStr];
+            result.push({
+                date: dateStr,
+                count: dayStat?.count || 0
+            });
+            current.setDate(current.getDate() + 1);
+        }
+
+        return result;
+    }
+
+    /**
+     * Store a review event in local statistics
+     */
+    async recordReview(review: ReviewEvent): Promise<void> {
+        const stats = this.getReviewStats();
+        const date = review.reviewedAt.split('T')[0]; // Extract YYYY-MM-DD
+
+        if (!stats[date]) {
+            stats[date] = {
+                date,
+                count: 0,
+                reviews: []
+            };
+        }
+
+        // Check if this review is already recorded (by PR ID and review date)
+        const existingReview = stats[date].reviews.find(
+            r => r.prId === review.prId && r.reviewedAt === review.reviewedAt
+        );
+
+        if (!existingReview) {
+            stats[date].reviews.push(review);
+            stats[date].count = stats[date].reviews.length;
+            await this.context.globalState.update('reviewStats', stats);
+        }
+    }
+
+    /**
+     * Sync recent reviews from GitHub to local storage
+     * This should be called periodically to backfill review history
+     */
+    async syncReviewHistory(daysBack: number = 90): Promise<number> {
+        try {
+            const since = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+            const reviews = await this.getCompletedReviews(since);
+
+            // Record all reviews
+            for (const review of reviews) {
+                await this.recordReview(review);
+            }
+
+            return reviews.length;
+        } catch (error) {
+            console.error('Failed to sync review history:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get total review count for a date range
+     */
+    getTotalReviewCount(startDate: Date, endDate: Date): number {
+        const stats = this.getStatsForDateRange(startDate, endDate);
+        return stats.reduce((sum, day) => sum + day.count, 0);
+    }
+
+    /**
+     * Mark a PR as reviewed (called when user opens/dismisses a PR)
+     */
+    async markPRAsReviewed(pr: PullRequest): Promise<void> {
+        // Don't track PRs authored by the user - only track PRs they're reviewing
+        try {
+            const { data: user } = await this.octokit!.users.getAuthenticated();
+            if (pr.user.login === user.login) {
+                return;
+            }
+        } catch (error) {
+            console.error('Failed to check PR author:', error);
+            return;
+        }
+
+        const review: ReviewEvent = {
+            prId: pr.id,
+            prTitle: pr.title,
+            prNumber: pr.number,
+            repository: pr.repository.full_name,
+            reviewedAt: new Date().toISOString(),
+            reviewState: 'VIEWED', // Custom state for tracking when user interacted with PR
+            prUrl: pr.html_url
+        };
+
+        await this.recordReview(review);
+    }
+
+    /**
+     * Remove a specific PR from review statistics
+     */
+    async removeReviewByPR(prNumber: number, repository: string): Promise<void> {
+        const stats = this.getReviewStats();
+
+        for (const date in stats) {
+            const dayStat = stats[date];
+            dayStat.reviews = dayStat.reviews.filter(
+                review => !(review.prNumber === prNumber && review.repository === repository)
+            );
+            dayStat.count = dayStat.reviews.length;
+
+            // Remove empty days
+            if (dayStat.count === 0) {
+                delete stats[date];
+            }
+        }
+
+        await this.context.globalState.update('reviewStats', stats);
+    }
+
+    /**
+     * Clean up all local "VIEWED" reviews (which are just click tracking, not real GitHub reviews)
+     */
+    async cleanupLocalViewedReviews(): Promise<void> {
+        const stats = this.getReviewStats();
+        let removedCount = 0;
+
+        for (const date in stats) {
+            const dayStat = stats[date];
+            const beforeCount = dayStat.reviews.length;
+
+            // Keep only reviews from GitHub (not VIEWED state)
+            dayStat.reviews = dayStat.reviews.filter(
+                review => review.reviewState !== 'VIEWED'
+            );
+
+            removedCount += beforeCount - dayStat.reviews.length;
+            dayStat.count = dayStat.reviews.length;
+
+            // Remove empty days
+            if (dayStat.count === 0) {
+                delete stats[date];
+            }
+        }
+
+        await this.context.globalState.update('reviewStats', stats);
+    }
+
+    /**
+     * Clear all review statistics and re-sync from GitHub
+     */
+    async clearAndResync(): Promise<number> {
+        // Clear all existing stats
+        await this.context.globalState.update('reviewStats', {});
+
+        // Re-sync from GitHub (which now filters out PRs authored by the user)
+        const count = await this.syncReviewHistory(90);
+        return count;
     }
 }

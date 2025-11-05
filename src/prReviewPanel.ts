@@ -54,15 +54,29 @@ export class PRReviewPanel {
                 switch (message.command) {
                     case 'openPR':
                         vscode.env.openExternal(vscode.Uri.parse(message.url));
+                        // Track that user interacted with this PR
+                        if (message.pr) {
+                            await this._githubService.markPRAsReviewed(message.pr);
+                        }
                         break;
                     case 'checkoutPR':
                         await this.checkoutPR(message.pr);
+                        // Track that user interacted with this PR
+                        if (message.pr) {
+                            await this._githubService.markPRAsReviewed(message.pr);
+                        }
                         break;
                     case 'refresh':
                         await this.refresh();
                         break;
                     case 'authenticate':
                         await this.authenticate();
+                        break;
+                    case 'getStats':
+                        await this.sendStats();
+                        break;
+                    case 'syncHistory':
+                        await this.syncHistory();
                         break;
                 }
             },
@@ -88,8 +102,6 @@ export class PRReviewPanel {
 
     private async checkoutPR(pr: any) {
         try {
-            console.log('Checkout PR called with:', pr);
-
             // Validate PR object
             if (!pr || !pr.html_url) {
                 vscode.window.showErrorMessage('Invalid PR data');
@@ -163,12 +175,54 @@ export class PRReviewPanel {
             } else {
                 this._panel.title = `✅ No PR Reviews`;
             }
+
+            // Also send stats after refresh
+            await this.sendStats();
         } catch (error: any) {
             console.error('Failed to refresh PR reviews:', error);
             this._panel.webview.postMessage({
                 command: 'error',
                 message: error.message || 'Failed to fetch PR reviews'
             });
+        }
+    }
+
+    private async sendStats() {
+        try {
+            // Get the actual review events with details
+            const reviewStats = this._githubService.getReviewStats();
+            const reviews: any[] = [];
+
+            // Flatten all reviews from all days
+            Object.values(reviewStats).forEach((dayStat: any) => {
+                dayStat.reviews.forEach((review: any) => {
+                    reviews.push(review);
+                });
+            });
+
+            // Sort by date (oldest to newest)
+            reviews.sort((a, b) => new Date(a.reviewedAt).getTime() - new Date(b.reviewedAt).getTime());
+
+            this._panel.webview.postMessage({
+                command: 'updateStats',
+                stats: {
+                    reviews: reviews
+                }
+            });
+        } catch (error) {
+            console.error('Failed to send stats:', error);
+        }
+    }
+
+    private async syncHistory() {
+        try {
+            this._panel.webview.postMessage({ command: 'syncingHistory' });
+            const count = await this._githubService.syncReviewHistory(90);
+            vscode.window.showInformationMessage(`Synced ${count} reviews from GitHub`);
+            await this.sendStats();
+        } catch (error: any) {
+            console.error('Failed to sync history:', error);
+            vscode.window.showErrorMessage(`Failed to sync review history: ${error.message}`);
         }
     }
 
@@ -205,6 +259,149 @@ export class PRReviewPanel {
                     font-size: 14px;
                     color: var(--vscode-foreground);
                     background-color: var(--vscode-editor-background);
+                }
+
+                .stats-container {
+                    margin-bottom: 20px;
+                    padding: 12px 16px;
+                    background-color: var(--vscode-editor-inactiveSelectionBackground);
+                    border: 1px solid var(--vscode-widget-border);
+                    border-radius: 6px;
+                }
+
+                .stats-header {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 16px;
+                }
+
+                .stats-title {
+                    font-size: 18px;
+                    font-weight: 600;
+                }
+
+                .sync-btn {
+                    padding: 6px 12px;
+                    background-color: var(--vscode-button-background);
+                    color: var(--vscode-button-foreground);
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    transition: background-color 0.2s;
+                }
+
+                .sync-btn:hover {
+                    background-color: var(--vscode-button-hoverBackground);
+                }
+
+                .stats-summary {
+                    display: flex;
+                    gap: 20px;
+                    margin-bottom: 16px;
+                    flex-wrap: wrap;
+                }
+
+                .stat-box {
+                    flex: 1;
+                    min-width: 120px;
+                    padding: 12px;
+                    background-color: var(--vscode-editor-background);
+                    border-radius: 4px;
+                    text-align: center;
+                }
+
+                .stat-value {
+                    font-size: 28px;
+                    font-weight: 700;
+                    color: var(--vscode-charts-blue);
+                }
+
+                .stat-label {
+                    font-size: 12px;
+                    color: var(--vscode-descriptionForeground);
+                    margin-top: 4px;
+                }
+
+                .chart-container {
+                    overflow-x: hidden;
+                    width: 100%;
+                }
+
+                .contribution-graph {
+                    display: flex;
+                    gap: 3px;
+                    align-items: flex-end;
+                    padding: 8px 0;
+                    justify-content: flex-end;
+                    overflow: visible;
+                }
+
+                .date-column {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 3px;
+                    align-items: center;
+                    min-width: 14px;
+                    flex-shrink: 0;
+                }
+
+                .cubes-stack {
+                    display: flex;
+                    flex-direction: column-reverse;
+                    gap: 3px;
+                    align-items: center;
+                    min-width: 14px;
+                    min-height: 14px;
+                }
+
+                .review-cube {
+                    width: 14px;
+                    height: 14px;
+                    border-radius: 2px;
+                    cursor: pointer;
+                    position: relative;
+                    transition: all 0.2s;
+                    background-color: rgba(48, 161, 78, 0.8);
+                    border: 1px solid rgba(27, 31, 35, 0.06);
+                    flex-shrink: 0;
+                }
+
+                .review-cube:hover {
+                    background-color: rgba(33, 110, 57, 1);
+                    border: 1px solid rgba(27, 31, 35, 0.3);
+                    transform: scale(1.15);
+                }
+
+                #global-tooltip {
+                    display: none;
+                    position: fixed;
+                    background-color: var(--vscode-editorHoverWidget-background);
+                    border: 1px solid var(--vscode-editorHoverWidget-border);
+                    padding: 8px 12px;
+                    border-radius: 4px;
+                    font-size: 11px;
+                    z-index: 999999;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+                    max-width: 400px;
+                    pointer-events: none;
+                    word-wrap: break-word;
+                    line-height: 1.4;
+                }
+
+                .date-label {
+                    font-size: 8px;
+                    color: var(--vscode-descriptionForeground);
+                    margin-top: 6px;
+                    white-space: nowrap;
+                    text-align: center;
+                }
+
+                .review-count {
+                    margin-top: 8px;
+                    font-size: 12px;
+                    color: var(--vscode-descriptionForeground);
                 }
 
 
@@ -398,6 +595,8 @@ export class PRReviewPanel {
             </style>
         </head>
         <body>
+            <div id="global-tooltip"></div>
+            <div id="stats" style="display: none;"></div>
             <div id="content">
                 <div class="loading">
                     <div class="spinner"></div>
@@ -412,8 +611,12 @@ export class PRReviewPanel {
                     vscode.postMessage({ command: 'refresh' });
                 }
 
-                function openPR(url) {
-                    vscode.postMessage({ command: 'openPR', url: url });
+                function openPR(url, pr) {
+                    vscode.postMessage({ command: 'openPR', url: url, pr: pr });
+                }
+
+                function syncHistory() {
+                    vscode.postMessage({ command: 'syncHistory' });
                 }
 
                 function checkoutPR(pr) {
@@ -441,6 +644,144 @@ export class PRReviewPanel {
                     } else {
                         return 'just now';
                     }
+                }
+
+                function formatDateShort(dateString) {
+                    const date = new Date(dateString);
+                    return \`\${date.getMonth() + 1}/\${date.getDate()}\`;
+                }
+
+                function formatDateFull(dateString) {
+                    const date = new Date(dateString);
+                    const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+                    return date.toLocaleDateString(undefined, options);
+                }
+
+                function openReviewPR(url) {
+                    vscode.postMessage({ command: 'openPR', url: url });
+                }
+
+                function showTooltip(event, content) {
+                    const tooltip = document.getElementById('global-tooltip');
+                    tooltip.innerHTML = content;
+                    tooltip.style.display = 'block';
+
+                    // Get the cube's position
+                    const cube = event.currentTarget;
+                    const rect = cube.getBoundingClientRect();
+
+                    // Position tooltip above the cube
+                    const tooltipRect = tooltip.getBoundingClientRect();
+                    const left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+                    const top = rect.top - tooltipRect.height - 8; // 8px gap above cube
+
+                    tooltip.style.left = Math.max(8, left) + 'px';
+                    tooltip.style.top = Math.max(8, top) + 'px';
+                }
+
+                function hideTooltip() {
+                    const tooltip = document.getElementById('global-tooltip');
+                    tooltip.style.display = 'none';
+                }
+
+                function renderStats(stats) {
+                    const statsContainer = document.getElementById('stats');
+
+                    if (!stats || !stats.reviews) {
+                        statsContainer.style.display = 'none';
+                        return;
+                    }
+
+                    const reviews = stats.reviews;
+
+                    if (reviews.length === 0) {
+                        statsContainer.innerHTML = \`
+                            <div class="stats-container">
+                                <div class="review-count">No reviews yet.</div>
+                            </div>
+                        \`;
+                        statsContainer.style.display = 'block';
+                        return;
+                    }
+
+                    // Group reviews by date (convert to local date to avoid timezone issues)
+                    const reviewsByDate = {};
+                    reviews.forEach(review => {
+                        const reviewDate = new Date(review.reviewedAt);
+                        const localDateStr = new Date(reviewDate.getTime() - reviewDate.getTimezoneOffset() * 60000)
+                            .toISOString().split('T')[0];
+                        if (!reviewsByDate[localDateStr]) {
+                            reviewsByDate[localDateStr] = [];
+                        }
+                        reviewsByDate[localDateStr].push(review);
+                    });
+
+                    // Calculate how many days we can fit based on window width
+                    const bodyWidth = document.body.clientWidth || window.innerWidth;
+                    const columnWidth = 17; // 14px cube + 3px gap
+                    // Account for stats-container padding (16px * 2) + body padding (10px * 2) + some buffer
+                    const padding = 60;
+                    const availableWidth = Math.max(bodyWidth - padding, columnWidth * 10); // At least 10 days
+                    const numDays = Math.floor(availableWidth / columnWidth);
+
+                    // Always end at today (local date), go back numDays
+                    const endDate = new Date();
+                    endDate.setHours(23, 59, 59, 999); // End of today
+                    const startDate = new Date(endDate);
+                    startDate.setDate(startDate.getDate() - numDays + 1);
+                    startDate.setHours(0, 0, 0, 0);
+
+                    // Generate all dates in range (using local dates)
+                    const dateRange = [];
+                    const currentDate = new Date(startDate);
+                    while (currentDate <= endDate) {
+                        const localDateStr = new Date(currentDate.getTime() - currentDate.getTimezoneOffset() * 60000)
+                            .toISOString().split('T')[0];
+                        dateRange.push(localDateStr);
+                        currentDate.setDate(currentDate.getDate() + 1);
+                    }
+
+                    // Generate columns - one per date (including empty ones)
+                    const columns = dateRange.map(date => {
+                        const dateReviews = reviewsByDate[date] || [];
+                        const cubes = dateReviews.map(review => {
+                            const url = review.prUrl || \`https://github.com/\${review.repository}/pull/\${review.prNumber}\`;
+                            const tooltipContent = \`<strong>\${review.prTitle}</strong><br>\${review.repository} #\${review.prNumber}<br>\${formatDateFull(review.reviewedAt)}\`;
+                            return \`
+                                <div class="review-cube"
+                                     onclick="openReviewPR('\${url}')"
+                                     onmouseenter="showTooltip(event, '\${tooltipContent.replace(/'/g, "&apos;")}')"
+                                     onmouseleave="hideTooltip()">
+                                </div>
+                            \`;
+                        }).join('');
+
+                        return \`
+                            <div class="date-column">
+                                <div class="cubes-stack">
+                                    \${cubes}
+                                </div>
+                            </div>
+                        \`;
+                    }).join('');
+
+                    // Calculate the maximum number of cubes stacked on any single day
+                    const maxCubesInDay = Math.max(...Object.values(reviewsByDate).map(r => r.length), 1);
+                    const cubeHeight = 14; // px
+                    const cubeGap = 3; // px
+                    const graphHeight = (maxCubesInDay * cubeHeight) + ((maxCubesInDay - 1) * cubeGap);
+
+                    statsContainer.innerHTML = \`
+                        <div class="stats-container">
+                            <div class="chart-container">
+                                <div class="contribution-graph" style="min-height: \${graphHeight}px; height: \${graphHeight}px;">
+                                    \${columns}
+                                </div>
+                            </div>
+                        </div>
+                    \`;
+
+                    statsContainer.style.display = 'block';
                 }
 
                 function renderPRs(prs) {
@@ -486,7 +827,7 @@ export class PRReviewPanel {
                                         <button class="icon-btn" onclick='checkoutPR(\${JSON.stringify(pr).replace(/'/g, "&apos;")})' title="Checkout PR">
                                             ⤵
                                         </button>
-                                        <button class="icon-btn" onclick="openPR('\${pr.html_url}')" title="Open in Browser">
+                                        <button class="icon-btn" onclick='openPR("\${pr.html_url}", \${JSON.stringify(pr).replace(/'/g, "&apos;")})' title="Open in Browser">
                                             🔗
                                         </button>
                                     </div>
@@ -509,12 +850,30 @@ export class PRReviewPanel {
                     content.innerHTML = \`<div class="pr-grid">\${prCardsHtml}</div>\`;
                 }
 
+                // Store last stats for re-rendering on resize
+                let lastStats = null;
+
                 window.addEventListener('message', event => {
                     const message = event.data;
 
                     switch (message.command) {
                         case 'updatePRs':
                             renderPRs(message.prs);
+                            break;
+                        case 'updateStats':
+                            lastStats = message.stats;
+                            renderStats(message.stats);
+                            break;
+                        case 'syncingHistory':
+                            document.getElementById('stats').innerHTML = \`
+                                <div class="stats-container">
+                                    <div class="loading">
+                                        <div class="spinner"></div>
+                                        <div style="margin-top: 20px;">Syncing review history from GitHub...</div>
+                                    </div>
+                                </div>
+                            \`;
+                            document.getElementById('stats').style.display = 'block';
                             break;
                         case 'loading':
                             document.getElementById('content').innerHTML = \`
@@ -547,6 +906,20 @@ export class PRReviewPanel {
                             \`;
                             break;
                     }
+                });
+
+                // Re-render stats on window resize to fill the width
+                let resizeTimeout;
+                window.addEventListener('resize', () => {
+                    clearTimeout(resizeTimeout);
+                    resizeTimeout = setTimeout(() => {
+                        if (lastStats) {
+                            // Force a small delay to ensure container has resized
+                            requestAnimationFrame(() => {
+                                renderStats(lastStats);
+                            });
+                        }
+                    }, 100);
                 });
             </script>
         </body>
